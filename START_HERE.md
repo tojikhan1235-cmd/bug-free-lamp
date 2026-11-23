@@ -94,7 +94,48 @@ If instead you get `[JARVIS STARTUP FAILURE] No brain found.`, either Ollama isn
 - `open notepad and type hello` — app control
 - `health` — brain/model status report
 
-## 6. Install OpenCode (drive JARVIS from your terminal/IDE)
+## 6. Choose your brain: Local (free) or your own API — the ⚙ SETUP panel
+
+In the dashboard, click **⚙ SETUP** (bottom bar). The panel lists every brain and lets you switch
+with one click — no typing `use <brain>` needed:
+
+- **Smart routing** — JARVIS auto-picks the best brain per request (default).
+- **ollama** — *local · free*, no key. Badge shows **local · free**. Pick a model (e.g. `llama3.1:8b`,
+  or `llama3.2:3b` for a lighter brain).
+- **claude / perplexity / nvidia / gemini** — *your own API*. Each shows **key ready** or
+  **add `<ENV_VAR>` to .env**.
+
+Select a brain → (optionally edit its model) → **APPLY**. The switch is instant and is saved to
+`config/settings.json`, so it survives restarts.
+
+🔒 **The panel never asks for, sends, or stores your keys.** It only shows whether each key is
+*present*. To connect a cloud brain, put its key in your `.env` file (step 4), e.g.:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
+```
+
+then reopen **⚙ SETUP** — the badge flips to **key ready**. (Under the hood: `GET /api/brains` and
+`POST /api/brain` in `channels/web_server.py`; keys stay in `.env`, which is gitignored.)
+
+## 7. Use it with ANY coding agent
+
+The repo ships native config for every major agent, all mirroring **AGENTS.md** / **CONVENTIONS.md**:
+
+| Agent | Config file |
+|---|---|
+| OpenAI Codex, Cursor, Zed, Amp, Jules, Factory | `AGENTS.md` (open standard) |
+| Claude Code | `CLAUDE.md` |
+| OpenCode | `opencode.json` + `.opencode/` (5 agents, 5 slash commands) |
+| Cursor (native rules) | `.cursor/rules/jarvis.mdc` |
+| GitHub Copilot | `.github/copilot-instructions.md` |
+| Gemini CLI | `GEMINI.md` |
+| Windsurf | `.windsurfrules` |
+| Cline / Roo | `.clinerules` |
+| Aider | `.aider.conf.yml` (reads `CONVENTIONS.md`) |
+
+### OpenCode (optional — the richest built-in setup)
 
 1. Install: <https://opencode.ai/docs/> (Windows: `winget install anomalyco.opencode` or the
    npm route `npm i -g opencode-ai`).
@@ -112,7 +153,7 @@ If instead you get `[JARVIS STARTUP FAILURE] No brain found.`, either Ollama isn
 /test
 ```
 
-## 7. Tests
+## 8. Tests
 
 ```powershell
 python -m pytest tests/ -q --tb=no

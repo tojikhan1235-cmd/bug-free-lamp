@@ -58,13 +58,40 @@ changing anything. These rules are hard constraints, not suggestions.
 - Vision grounding is best-effort: models can mislocate. Always verify after clicking
   (`VisionCore.verify`) and say what actually happened.
 
-## OpenCode
+## Brain Setup UI (choose local or your own API)
 
-- `opencode.json` — model + small_model = `ollama/llama3.1:8b`; commands: jarvis, research,
-  desktop, health, test.
-- `.opencode/agent/` — jarvis.md (mode: all, primary), research/coding/security/memory
-  (mode: subagent). `.opencode/commands/` — the five slash commands (templates use
-  `$ARGUMENTS`).
+- The HUD (`ui/hud.html`, served at `/`) has a ⚙ **SETUP** button that opens a Brain Setup panel:
+  pick **Local (Ollama, free, no key)** or a **cloud brain** (Claude / Perplexity / NVIDIA / Gemini),
+  edit any brain's model, and Apply — the choice takes effect live and persists to
+  `config/settings.json` (non-secret fields only: `llm.active` + per-profile `model`).
+- Backing endpoints in `channels/web_server.py`:
+  - `GET /api/brains` → `{active, smart_routing, brains:[{name, provider, model, key_env,
+    key_present, local, usable}]}`. **Returns only whether a key is PRESENT (bool) and the env-var
+    NAME — never the key value.**
+  - `POST /api/brain` `{"name":"ollama"|"claude"|...|"auto", "model":"optional"}` → switches the
+    live brain (`llm.switch`/`llm.auto`) and persists the choice. `auto` = smart per-request routing.
+- **SAFETY: the API never accepts or returns raw keys.** Keys live solely in `.env` (gitignored).
+  Keep it that way — the panel is a switcher, not a key vault. Cloud brains show
+  "add <ENV_VAR> to .env" when their key is missing.
+
+## Coding agents (works with any tool)
+
+The same rules are mirrored into every major agent's native config so the project behaves
+consistently regardless of the tool. Canonical source is **AGENTS.md**; **CONVENTIONS.md** is the
+portable summary the others mirror.
+
+- **AGENTS.md** — open standard read by OpenAI Codex, Cursor, Zed, Amp, Jules, Factory, and more.
+- **CLAUDE.md** — Claude Code.
+- **OpenCode**: `opencode.json` (model + small_model = `ollama/llama3.1:8b`; commands jarvis,
+  research, desktop, health, test) + `.opencode/agent/` (jarvis primary; research/coding/security/
+  memory subagents) + `.opencode/commands/` (the five slash commands, templates use `$ARGUMENTS`).
+- **Cursor**: `.cursor/rules/jarvis.mdc` (alwaysApply).
+- **GitHub Copilot**: `.github/copilot-instructions.md`.
+- **Gemini CLI**: `GEMINI.md`.
+- **Windsurf**: `.windsurfrules`.  **Cline / Roo**: `.clinerules`.  **Aider**: `.aider.conf.yml`
+  (reads `CONVENTIONS.md`).
+
+When you change a rule, update AGENTS.md + CONVENTIONS.md and keep the per-tool mirrors in sync.
 
 ## Tests
 

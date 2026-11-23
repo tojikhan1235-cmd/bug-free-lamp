@@ -1,0 +1,44 @@
+# GEMINI.md — JARVIS context for Gemini CLI
+
+Canonical rules: **AGENTS.md** / **CONVENTIONS.md**. Hard constraints, not suggestions.
+
+## Entry points
+- `main.py` is THE entry point: `python main.py` (HUD dashboard), `python main.py --terminal` (text).
+  Flow: `main.py → core/orchestrator.py → core/reasoning_core.py → core/agentic_core.py → tools/*`.
+- Never wire anything to `jarvis_main.py` or `agent_fabric.py` (deprecated). `gui.py` = dashboard alias.
+
+## Pluggable brain (free, local-first)
+- No key required. Without `ANTHROPIC_API_KEY` → local Ollama (`llm_router.local_mode()`), model env
+  `OLLAMA_MODEL` (default `llama3.1:8b`), host env `OLLAMA_HOST`; vision env `OLLAMA_VISION_MODEL`
+  (default `llava:7b`). With a key, Claude is used/preferred. `main.py::_startup_check()` boots on ANY
+  reachable brain and hard-fails only when none exists.
+- Core runtime is **pure standard library**; optional packages go behind `try/except ImportError` and
+  degrade honestly (never crash, never fake success).
+
+## Brain Setup UI
+- HUD (`ui/hud.html`) ⚙ SETUP → `GET /api/brains` + `POST /api/brain {"name","model"}`
+  (`channels/web_server.py`); persists to `config/settings.json` (non-secret only). The API NEVER
+  accepts or returns raw keys — only `key_present` + env-var NAME. Keys live solely in `.env`.
+
+## Safety gates — DO NOT WEAKEN
+- `security.py`, `core/permission_gate.py`, `core/permission_manager.py`, `core/safety_guard.py`.
+- Deletion, overwrite, shell, installs, external comms, system changes, money/trading stay
+  confirmation-gated; self-modification of `PROTECTED_SOURCE` stays blocked. `pyautogui.FAILSAFE=True`
+  always. Never edit a gate to pass a test — the gate wins.
+
+## Secrets
+- Never commit/print/log/store keys. `.env` is gitignored. No secrets in code, config, memory, notes, tests.
+
+## click_element
+- "click the submit button" → `VisionCore.locate` (UIA tree → two-pass vision → single-pass) →
+  `click_at`; module path `modules/gui_automation.py::click_element` → `vision_engine.locate_element`
+  (% → pixels). Grounding is best-effort — verify after clicking.
+
+## Tests
+- `python -m pytest tests/ -q --tb=no`. Known-failing baseline (upstream, NOT regressions; don't weaken
+  gates to fix): `tests/test_hardening.py` (3) + `tests/test_core.py::test_agentic_brain_chains_actions`.
+  Don't change `llm_router.complexity_score()` / `classify_task()`.
+
+## Platform
+- Windows 10/11 target. SAPI voice, Task Scheduler, UI Automation, app control can't be tested on
+  Linux — say so; never claim verified.

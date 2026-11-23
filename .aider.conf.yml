@@ -1,0 +1,13 @@
+# Aider configuration for JARVIS.
+# CONVENTIONS.md is loaded as read-only context on every message so Aider always
+# knows the entry points, the free/local pluggable brain, the Brain Setup UI, the
+# safety gates it must NOT weaken, and the known-failing test baseline.
+# Canonical rules: AGENTS.md / CONVENTIONS.md.
+read:
+  - CONVENTIONS.md
+
+# JARVIS core is pure standard library; tests run with pytest.
+# NOTE: the suite has a KNOWN-FAILING baseline (4 tests that also fail on untouched
+# upstream — tests/test_hardening.py x3 + test_core.py::test_agentic_brain_chains_actions).
+# Do NOT "fix" those by weakening a permission gate. See CONVENTIONS.md.
+# test-cmd is intentionally left unset so a non-zero baseline isn't mistaken for your regression.

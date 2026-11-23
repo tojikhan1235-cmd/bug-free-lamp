@@ -6,9 +6,11 @@ Orchestrator used by terminal mode. Voice runs in the browser (Web Speech API),
 so there's nothing to install for speech.
 
 Endpoints:
-  GET  /                -> dashboard.html
+  GET  /                -> hud.html (classic dashboard at /classic)
   GET  /api/bootstrap   -> banner, agents, tools, status, llm status
+  GET  /api/brains      -> brain list for the Setup panel (key PRESENCE only, never values)
   POST /api/command     -> {"text": "..."} -> {"reply": "...", "status": {...}}
+  POST /api/brain       -> {"name": "ollama"|"claude"|...|"auto", "model": "..."} -> switch brain
 """
 from __future__ import annotations
 import json, os, threading, webbrowser
@@ -18,7 +20,60 @@ from core.orchestrator import Orchestrator
 
 UI_PATH = os.path.join("ui", "hud.html")          # movie-grade JARVIS HUD (default)
 CLASSIC_PATH = os.path.join("ui", "dashboard.html")  # classic dashboard at /classic
+SETTINGS_PATH = os.path.join("config", "settings.json")
 _LOCK = threading.Lock()
+
+
+def _brains_payload(llm) -> dict:
+    """Describe every configured brain for the Setup panel.
+
+    SAFETY: returns only whether each key is PRESENT (bool) and the ENV VAR NAME —
+    never the key value. Secrets stay in .env / the environment and are never sent
+    to the browser, stored in config, or logged."""
+    if llm is None:
+        return {"active": "", "smart_routing": False, "brains": []}
+    full = getattr(llm, "full", {}) or {}
+    profiles = full.get("profiles") or {}
+    brains = []
+    for name in llm.profiles():
+        prof = profiles.get(name, {}) or {}
+        env = prof.get("api_key_env", "") or ""
+        provider = prof.get("provider", "") or ""
+        key_present = (not env) or bool(os.environ.get(env))
+        brains.append({
+            "name": name,
+            "provider": provider,
+            "model": prof.get("model", ""),
+            "key_env": env,           # the NAME of the env var only — never its value
+            "key_present": key_present,
+            "local": provider == "ollama",
+            "usable": key_present,
+        })
+    return {"active": getattr(llm, "active", ""),
+            "smart_routing": not getattr(llm, "pinned", False),
+            "brains": brains}
+
+
+def _persist_brain_choice(cfg_path, active=None, model=None) -> bool:
+    """Persist the chosen brain (and optional model override) to settings.json.
+    Writes NON-SECRET config only — which profile is active, and a model string.
+    Never writes keys."""
+    try:
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+    llm_cfg = cfg.setdefault("llm", {})
+    if active:
+        llm_cfg["active"] = active
+        if model:
+            llm_cfg.setdefault("profiles", {}).setdefault(active, {})["model"] = model
+    try:
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        return True
+    except OSError:
+        return False
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -59,6 +114,54 @@ class _Handler(BaseHTTPRequestHandler):
             "live": o.live.snapshot() if hasattr(o, "live") else {},
         }
 
+    def _handle_brain_switch(self):
+        """POST /api/brain {"name":"ollama"|"claude"|...|"auto", "model":"optional"}.
+        Switches the live brain and persists the (non-secret) choice. Keys are never
+        accepted here — this only picks a profile and, optionally, its model string."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length).decode("utf-8") if length else "{}"
+            data = json.loads(raw)
+        except (ValueError, json.JSONDecodeError):
+            self._send(400, json.dumps({"error": "bad request"}))
+            return
+        name = (data.get("name") or "").strip().lower()
+        model = (data.get("model") or "").strip()
+        llm = self.orch.llm
+
+        # "auto" releases any manual pin -> smart per-request routing (nothing to persist)
+        if name in ("auto", "smart", "automatic"):
+            try:
+                llm.auto()
+            except Exception:
+                pass
+            self._send(200, json.dumps({
+                "ok": True,
+                "reply": "Smart routing engaged, sir - I'll pick the best brain per request.",
+                "brains": _brains_payload(llm), "status": self._status_dict()}))
+            return
+
+        if not name or not llm.switch(name):
+            self._send(400, json.dumps({
+                "ok": False, "error": f"Unknown brain '{name}'.",
+                "brains": _brains_payload(llm)}))
+            return
+        if model:
+            llm.model = model
+        _persist_brain_choice(SETTINGS_PATH, active=name, model=model or None)
+
+        try:
+            key_ok = llm._key_ok()
+        except Exception:
+            key_ok = True
+        env = getattr(llm, "api_key_env", "")
+        tail = "" if key_ok else f" (but env {env} is missing - add it to your .env)"
+        label = "Local brain engaged" if getattr(llm, "provider", "") == "ollama" else f"Switched to {name}"
+        reply = f"{label}, sir ({getattr(llm, 'model', '')}){tail}."
+        self._send(200, json.dumps({
+            "ok": True, "reply": reply,
+            "brains": _brains_payload(llm), "status": self._status_dict()}))
+
     def do_GET(self):
         if self.path in ("/", "/index.html", "/dashboard"):
             try:
@@ -97,6 +200,9 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == "/api/status":
             self._send(200, json.dumps(self._status_dict()))
             return
+        if self.path == "/api/brains":
+            self._send(200, json.dumps(_brains_payload(self.orch.llm)))
+            return
         if self.path == "/api/alerts":
             try:
                 alerts = self.orch.drain_alerts()
@@ -134,6 +240,9 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(404, json.dumps({"error": "not found"}))
 
     def do_POST(self):
+        if self.path == "/api/brain":
+            self._handle_brain_switch()
+            return
         if self.path != "/api/command":
             self._send(404, json.dumps({"error": "not found"}))
             return
