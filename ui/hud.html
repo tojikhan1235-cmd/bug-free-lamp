@@ -157,6 +157,36 @@
              text-shadow:0 0 22px var(--cyan),0 0 60px rgba(0,240,255,.6);margin-bottom:20px;animation:flick 2.5s ease-in-out infinite}
   @keyframes flick{50%{opacity:.82}}
   #boot .bt{font-family:"Rajdhani";font-size:13px;letter-spacing:2px;color:var(--cyan);opacity:.9}
+  /* setup modal — choose brain (local or your API) */
+  .modal{position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;
+         background:rgba(1,4,10,.74);backdrop-filter:blur(6px)}
+  .modal.show{display:flex;animation:msgin .2s ease-out}
+  .modal .sheet{position:relative;width:min(580px,93vw);max-height:86vh;overflow:auto;padding:22px;
+         border:1px solid var(--line);border-radius:14px;background:var(--panel);
+         box-shadow:0 0 0 1px rgba(0,240,255,.1),0 0 46px rgba(0,240,255,.3)}
+  .modal h3{font-family:"Orbitron";font-size:13px;letter-spacing:4px;color:var(--cyan);text-transform:uppercase;
+         margin-bottom:8px;text-shadow:0 0 8px rgba(0,240,255,.5)}
+  .modal .sub{color:var(--muted);font-size:13.5px;line-height:1.55;margin-bottom:16px}
+  .modal .sub code{color:var(--cyan-soft);background:rgba(0,240,255,.08);padding:1px 5px;border-radius:5px}
+  .brain{display:flex;align-items:center;gap:11px;padding:10px 12px;margin-bottom:8px;cursor:pointer;
+         border:1px solid var(--line);border-radius:10px;transition:.15s}
+  .brain:hover{background:rgba(0,240,255,.07);transform:translateX(2px)}
+  .brain input[type=radio]{accent-color:var(--cyan);width:16px;height:16px;flex:none;cursor:pointer}
+  .brain .bname{font-family:"Orbitron";font-size:12px;letter-spacing:1px;color:#eafdff;min-width:118px;text-transform:uppercase}
+  .brain .bname em{display:block;font-family:"Rajdhani";font-style:normal;font-size:11px;letter-spacing:.3px;
+         color:var(--muted);text-transform:none;margin-top:2px}
+  .brain .bmodel{flex:1;min-width:110px;background:rgba(0,0,0,.42);border:1px solid var(--line);border-radius:8px;
+         color:var(--cyan-soft);font-family:"Rajdhani";font-size:13px;padding:6px 9px;outline:none;transition:.15s}
+  .brain .bmodel:focus{border-color:var(--cyan);box-shadow:0 0 10px rgba(0,240,255,.4)}
+  .bstat{font-family:"Orbitron";font-size:9px;letter-spacing:1px;padding:4px 8px;border-radius:999px;
+         white-space:nowrap;text-transform:uppercase;flex:none}
+  .bstat.ok{color:var(--green);border:1px solid rgba(77,255,156,.4);background:rgba(77,255,156,.1)}
+  .bstat.warn{color:var(--gold);border:1px solid rgba(245,194,86,.42);background:rgba(245,194,86,.1)}
+  .bstat.neutral{color:var(--muted);border:1px solid var(--line)}
+  .modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+  .modal .row button.act{padding:10px 20px}
+  .modal .note{color:var(--muted);font-size:11.5px;line-height:1.55;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+  .modal .note code{color:var(--cyan-soft)}
   ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:rgba(0,240,255,.28);border-radius:8px}
   ::-webkit-scrollbar-track{background:transparent}
 </style>
@@ -220,7 +250,22 @@
       <button class="act" id="voice" title="Toggle spoken replies">VOICE</button>
       <button class="act" id="convo" title="Hands-free conversation mode">AUTO</button>
       <button class="act" id="lang" title="Voice language (English / Telugu / Hindi)">EN&#42;</button>
+      <button class="act" id="setup" title="Brain setup - choose local (free) or connect your API key">&#9881; SETUP</button>
     </div>
+  </div>
+</div>
+
+<div class="modal" id="setupModal">
+  <div class="sheet">
+    <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+    <h3>Brain Setup</h3>
+    <div class="sub">Choose how JARVIS thinks. <b style="color:var(--green)">Local (Ollama)</b> is free &amp; private — no key needed. <b style="color:var(--cyan)">Cloud</b> brains use your own API key from <code>.env</code>. You can also edit any brain's model.</div>
+    <div id="brainList"></div>
+    <div class="row">
+      <button class="act" id="setupClose">CLOSE</button>
+      <button class="act" id="setupApply">APPLY</button>
+    </div>
+    <div class="note">&#128274; This panel never sees, sends, or stores your keys — it only shows whether each key is present. To connect a cloud brain, add its variable (e.g. <code>ANTHROPIC_API_KEY=...</code>) to your <code>.env</code> file and reopen Setup.</div>
   </div>
 </div>
 
@@ -410,6 +455,52 @@ setInterval(pollAlerts,10000);
 async function checkGreeting(){try{const r=await fetch('/api/greeting');const j=await r.json();
   if(j&&j.slot&&j.greeting&&localStorage.getItem('jarvis_greet_slot')!==j.slot){
     localStorage.setItem('jarvis_greet_slot',j.slot);addMsg('jarvis',j.greeting);speak(j.greeting);}}catch(e){}}
+
+// ---------- setup: choose brain (local or your own API) ----------
+const setupModal=$('setupModal');
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+async function loadBrains(){
+  const list=$('brainList'); list.innerHTML='<div class="bstat neutral">loading…</div>';
+  try{
+    const r=await fetch('/api/brains'); const j=await r.json();
+    let html='<label class="brain"><input type="radio" name="brain" value="auto"'+(j.smart_routing?' checked':'')+'>'
+      +'<span class="bname">Smart routing<em>auto-pick the best brain per request</em></span>'
+      +'<span class="bstat neutral">auto</span></label>';
+    (j.brains||[]).forEach(b=>{
+      const active=(b.name===j.active && !j.smart_routing);
+      let stat;
+      if(b.local) stat='<span class="bstat ok">local &middot; free</span>';
+      else if(b.key_present) stat='<span class="bstat ok">key ready</span>';
+      else stat='<span class="bstat warn">add '+esc(b.key_env)+' to .env</span>';
+      const kind=b.local?'local &middot; private':esc(b.provider);
+      html+='<label class="brain"><input type="radio" name="brain" value="'+esc(b.name)+'"'+(active?' checked':'')+'>'
+        +'<span class="bname">'+esc(b.name)+'<em>'+kind+'</em></span>'
+        +'<input class="bmodel" data-brain="'+esc(b.name)+'" value="'+esc(b.model)+'" placeholder="model" spellcheck="false">'
+        +stat+'</label>';
+    });
+    list.innerHTML=html;
+  }catch(e){ list.innerHTML='<div class="bstat warn">server offline</div>'; }
+}
+if($('setup')) $('setup').onclick=()=>{ setupModal.classList.add('show'); loadBrains(); };
+if($('setupClose')) $('setupClose').onclick=()=>{ setupModal.classList.remove('show'); };
+setupModal.addEventListener('click',e=>{ if(e.target===setupModal) setupModal.classList.remove('show'); });
+addEventListener('keydown',e=>{ if(e.key==='Escape') setupModal.classList.remove('show'); });
+if($('setupApply')) $('setupApply').onclick=async()=>{
+  const sel=document.querySelector('input[name="brain"]:checked'); if(!sel) return;
+  const name=sel.value; let model='';
+  if(name!=='auto'){ const mi=document.querySelector('.bmodel[data-brain="'+name+'"]'); if(mi) model=mi.value.trim(); }
+  const btn=$('setupApply'); btn.disabled=true; btn.textContent='APPLYING…';
+  try{
+    const r=await fetch('/api/brain',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,model})});
+    const j=await r.json();
+    if(j.status) renderStatus(j.status);
+    addMsg('jarvis', j.reply || (j.ok?'Brain updated, sir.':('Could not switch: '+(j.error||'unknown'))));
+    if(voiceOn && j.reply) speak(j.reply);
+    if(j.ok){ loadBrains(); pollStatus(); }
+  }catch(e){ addMsg('jarvis','[setup error] Could not reach the server, sir.'); }
+  btn.disabled=false; btn.textContent='APPLY';
+};
 
 // ---------- boot ----------
 const BOOTLINES=['Initialising core systems...','Loading reasoning engine...','Calibrating sub-agents...',
