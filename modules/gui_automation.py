@@ -1,4 +1,4 @@
-﻿"""JARVIS v6.0 — GUI automation via pyautogui/pygetwindow."""
+"""JARVIS v6.0 — GUI automation via pyautogui/pygetwindow."""
 from __future__ import annotations
 import time
 
@@ -10,22 +10,13 @@ except ImportError: _GW = False
 
 
 def take_screenshot_and_analyze(prompt: str = "Describe what you see") -> str:
+    """Capture the screen and analyze it via the vision brain (Ollama locally, Claude with a key)."""
     if not _PAG: return "pyautogui not installed."
     try:
         from modules.display_control import take_screenshot
-        import os, anthropic, base64
+        from modules.vision_engine import analyze_image
         path = take_screenshot()
-        key = os.getenv("ANTHROPIC_API_KEY","")
-        if not key: return f"Screenshot: {path}. No API key for vision."
-        with open(path, "rb") as f:
-            b64 = base64.standard_b64encode(f.read()).decode()
-        client = anthropic.Anthropic(api_key=key)
-        r = client.messages.create(
-            model="claude-sonnet-4-6", max_tokens=1024,
-            messages=[{"role":"user","content":[
-                {"type":"image","source":{"type":"base64","media_type":"image/png","data":b64}},
-                {"type":"text","text":prompt}]}])
-        return r.content[0].text
+        return analyze_image(path, prompt)
     except Exception as e: return f"Vision error: {e}"
 
 

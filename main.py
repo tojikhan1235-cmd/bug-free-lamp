@@ -21,40 +21,72 @@ if sys.platform == "win32":
         pass
 
 
-def _startup_check() -> None:
-    """Fail fast with a clear message if the environment is broken.
-    Verifies anthropic + the ANTHROPIC_API_KEY (read straight from .env so a stale
-    shell var can't mask a missing key). dotenv is optional — .env is parsed directly."""
-    errors = []
-    try:
-        import anthropic  # noqa: F401
-    except ImportError:
-        errors.append("anthropic not installed. Run: pip install -r requirements.txt")
+_PROVIDER_KEYS = ("ANTHROPIC_API_KEY", "PERPLEXITY_API_KEY", "NVIDIA_API_KEY",
+                  "GEMINI_API_KEY", "FIRECRAWL_API_KEY")
+_OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 
-    key = ""
+
+def _read_env_file() -> dict:
+    """Parse .env directly (dotenv is optional). The FILE is the source of truth so a
+    stale shell var can't mask a missing key. Never prints or logs the values."""
+    cfg = {}
     env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
     if os.path.exists(env_file):
         try:
             with open(env_file, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if line.startswith("ANTHROPIC_API_KEY=") and not line.startswith("#"):
-                        key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                        break
+                    if line.startswith("#") or "=" not in line:
+                        continue
+                    k, _, v = line.partition("=")
+                    cfg[k.strip()] = v.strip().strip('"').strip("'")
         except OSError:
             pass
-    if not key:
-        key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if len(key) < 20:
-        errors.append("ANTHROPIC_API_KEY missing/short. Add it to the .env file.")
+    return cfg
 
-    if errors:
-        print("\n[JARVIS STARTUP FAILURE]")
-        for e in errors:
-            print(f"  X {e}")
-        print("\nFix the above, then restart JARVIS.\n")
+
+def _ollama_alive() -> bool:
+    """True when a local Ollama server answers /api/tags (free, offline brain)."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(_OLLAMA_HOST + "/api/tags", timeout=2) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _startup_check() -> None:
+    """Fail fast ONLY when no brain exists anywhere.
+
+    JARVIS boots with any reachable brain:
+      * an Anthropic key (full Claude experience), or
+      * any provider key (PERPLEXITY / NVIDIA / GEMINI / FIRECRAWL), or
+      * a live local Ollama server at http://127.0.0.1:11434 (free, no key at all).
+    Pure-stdlib check — the anthropic package is NOT required in local mode."""
+    cfg = _read_env_file()
+    brains = []
+
+    for name in _PROVIDER_KEYS:
+        val = cfg.get(name) or os.environ.get(name, "")
+        min_len = 20 if name == "ANTHROPIC_API_KEY" else 8
+        if len(val) >= min_len:
+            brains.append(name.split("_API_KEY")[0].lower())
+
+    if _ollama_alive():
+        brains.append("ollama")
+
+    if not brains:
+        print("\n[JARVIS STARTUP FAILURE] No brain found.")
+        print("  X No API key in .env / environment, and no local Ollama server at " + _OLLAMA_HOST)
+        print("\n  Easiest free fix (fully local, no keys, no cost):")
+        print("    1. Install Ollama:        https://ollama.com/download/windows")
+        print("    2. Pull a brain model:    ollama pull llama3.1:8b")
+        print("    3. Pull eyes (optional):  ollama pull llava:7b")
+        print("    4. Start JARVIS again:    python main.py")
+        print("\n  Or add any key to the .env file (ANTHROPIC_API_KEY, PERPLEXITY_API_KEY,")
+        print("  NVIDIA_API_KEY, GEMINI_API_KEY, FIRECRAWL_API_KEY), then restart JARVIS.\n")
         sys.exit(1)
-    print("[JARVIS] Environment check passed.")
+    print("[JARVIS] Brains online: " + ", ".join(dict.fromkeys(brains)))
 
 
 def _run_terminal() -> int:

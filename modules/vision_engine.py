@@ -1,6 +1,6 @@
 """JARVIS v6.0 — Computer vision: OCR, face detection, object detection, screen reader."""
 from __future__ import annotations
-import os, base64
+import os, base64, json, urllib.request
 from pathlib import Path
 
 try: import cv2; _CV2 = True
@@ -9,9 +9,30 @@ except ImportError: _CV2 = False
 try: from PIL import Image; _PIL = True
 except ImportError: _PIL = False
 
+# Local (free) vision brain — used whenever there is no ANTHROPIC_API_KEY.
+OLLAMA_VISION_MODEL = os.environ.get("OLLAMA_VISION_MODEL", "llava:7b")
+_OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+
+
+def _ollama_analyze(b64: str, prompt: str) -> str:
+    """Analyze an image with a local Ollama vision model (e.g. llava:7b). Pure stdlib."""
+    payload = {
+        "model": OLLAMA_VISION_MODEL,
+        "stream": False,
+        "messages": [{"role": "user", "content": prompt, "images": [b64]}],
+        "options": {"temperature": 0.2, "num_predict": 1024},
+    }
+    req = urllib.request.Request(
+        _OLLAMA_HOST + "/api/chat",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=300) as r:
+        body = json.loads(r.read().decode("utf-8"))
+    return (body.get("message") or {}).get("content", "").strip()
+
 
 def screenshot_to_text() -> str:
-    """Take screenshot, extract all readable text using Claude vision."""
+    """Take screenshot, extract all readable text using the vision brain."""
     try:
         from modules.display_control import take_screenshot
         path = take_screenshot()
@@ -20,13 +41,27 @@ def screenshot_to_text() -> str:
 
 
 def analyze_image(path: str, prompt: str = "Describe this image in detail.") -> str:
-    """Send image to Claude vision API for analysis."""
-    key = os.getenv("ANTHROPIC_API_KEY","")
-    if not key: return "ANTHROPIC_API_KEY not set."
+    """Send image to the vision brain: local Ollama (no key needed) or Claude."""
     try:
-        import anthropic
         with open(path, "rb") as f:
             b64 = base64.standard_b64encode(f.read()).decode()
+    except OSError as e:
+        return f"Vision error: cannot read image {path}: {e}"
+
+    key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not key:
+        # Local mode — free vision via Ollama
+        try:
+            out = _ollama_analyze(b64, prompt)
+            if out:
+                return out
+            return (f"Local vision ({OLLAMA_VISION_MODEL}) returned nothing. "
+                    f"Pull it with: ollama pull {OLLAMA_VISION_MODEL}")
+        except Exception as e:
+            return (f"Local vision error: {e}. Is Ollama running with a vision model? "
+                    f"Fix: ollama serve  +  ollama pull {OLLAMA_VISION_MODEL}")
+    try:
+        import anthropic
         ext = Path(path).suffix.lower().lstrip(".")
         mime = {"jpg":"image/jpeg","jpeg":"image/jpeg",
                 "png":"image/png","gif":"image/gif","webp":"image/webp"}.get(ext,"image/png")
