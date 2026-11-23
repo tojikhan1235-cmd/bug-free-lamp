@@ -21,8 +21,15 @@ class LLMResponse:
 _HEALTH: dict[str, float] = {}  # model → last_ok timestamp
 _HEALTH_TTL = 300  # 5 min
 
-_OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
-_OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
+def _ollama_host() -> str:
+    """Local Ollama base URL — env OLLAMA_HOST, default http://127.0.0.1:11434."""
+    return os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+
+
+def _ollama_model() -> str:
+    """Local brain model — env OLLAMA_MODEL, default llama3.1:8b. Read per call so a
+    runtime override (or a test) takes effect without a restart."""
+    return os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
 
 _FRONTIER_TRIGGERS = ("strategy","architecture","mission critical","trading system",
                       "full analysis","deep research","ooda","independent thinking",
@@ -78,7 +85,7 @@ def local_mode() -> bool:
 
 def route(text: str) -> str:
     if local_mode():
-        return _OLLAMA_MODEL
+        return _ollama_model()
     score = complexity_score(text)
     if score >= 8: return "claude-sonnet-4-6"     # frontier
     if score <= 3: return "claude-haiku-4-5-20251001"  # fast
@@ -98,7 +105,7 @@ def _call_ollama(text: str, system: str, history: list | None,
     t0 = time.time()
     try:
         req = urllib.request.Request(
-            _OLLAMA_HOST + "/api/chat",
+            _ollama_host() + "/api/chat",
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=300) as r:
@@ -119,7 +126,7 @@ def call(text: str, system: str = "", history: list | None = None,
          model: str | None = None, max_tokens: int = 4096) -> LLMResponse:
     system = system or "You are JARVIS, Dew's autonomous AI agent."
     if local_mode():
-        selected = model or _OLLAMA_MODEL
+        selected = model or _ollama_model()
         return _call_ollama(text, system, history, selected, max_tokens)
     import anthropic
     key = _anthropic_key()
@@ -141,17 +148,18 @@ def call(text: str, system: str = "", history: list | None = None,
 
 def health_report() -> str:
     if local_mode():
+        host = _ollama_host()
         lines = ["LLM Health (local mode — no Anthropic key):"]
         try:
-            with urllib.request.urlopen(_OLLAMA_HOST + "/api/tags", timeout=3) as r:
+            with urllib.request.urlopen(host + "/api/tags", timeout=3) as r:
                 body = json.loads(r.read().decode("utf-8"))
             models = [m.get("name", "?") for m in body.get("models", [])]
-            lines.append(f"  ollama {_OLLAMA_HOST}: OK")
-            lines.append(f"  models pulled: {', '.join(models) if models else 'none — run: ollama pull ' + _OLLAMA_MODEL}")
-            lines.append(f"  active brain: {_OLLAMA_MODEL}")
+            lines.append(f"  ollama {host}: OK")
+            lines.append(f"  models pulled: {', '.join(models) if models else 'none — run: ollama pull ' + _ollama_model()}")
+            lines.append(f"  active brain: {_ollama_model()}")
         except Exception as e:
-            lines.append(f"  ollama {_OLLAMA_HOST}: UNREACHABLE — {e}")
-            lines.append("  Start it with `ollama serve`, then `ollama pull " + _OLLAMA_MODEL + "`.")
+            lines.append(f"  ollama {host}: UNREACHABLE — {e}")
+            lines.append("  Start it with `ollama serve`, then `ollama pull " + _ollama_model() + "`.")
         return "\n".join(lines)
     models = ["claude-sonnet-4-6","claude-haiku-4-5-20251001"]
     key = _anthropic_key()

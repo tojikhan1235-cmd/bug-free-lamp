@@ -20,6 +20,29 @@ def take_screenshot_and_analyze(prompt: str = "Describe what you see") -> str:
     except Exception as e: return f"Vision error: {e}"
 
 
+def click_element(description: str, button: str = "left", confirmed: bool = False) -> str:
+    """Click an element described IN WORDS — no coordinates needed.
+
+    Pipeline: screenshot -> vision brain returns the element's coordinates
+    (free/locally via llava:7b on Ollama; Claude when keyed) -> pyautogui click.
+    FAILSAFE stays on: slam the mouse to the top-left corner to abort mid-move.
+    Best-effort by nature — verify the outcome afterwards (e.g. VisionCore.verify)."""
+    if not _PAG: return "pyautogui not installed."
+    desc = (description or "").strip()
+    if not desc: return "Click what? Describe the element, e.g. 'the Submit button'."
+    try:
+        from modules.vision_engine import locate_element
+        loc = locate_element(desc)
+        if not loc.get("found"):
+            return f"I couldn't find '{desc}' on screen — {loc.get('detail', 'not visible')}"
+        x, y = loc["x"], loc["y"]
+        pyautogui.click(x, y, button=button)
+        label = f" ({loc['label']})" if loc.get("label") else ""
+        return f"Clicked {button} on '{desc}'{label} at ({x},{y})"
+    except Exception as e:
+        return f"click_element error: {e}"
+
+
 def get_open_windows() -> list[str]:
     if not _GW: return ["pygetwindow not installed"]
     try: return [w.title for w in gw.getAllWindows() if w.title.strip()]

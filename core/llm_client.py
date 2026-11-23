@@ -308,8 +308,9 @@ class LLMClient:
                  "provider": profiles.get(n, {}).get("provider", "")} for n in self.profiles()]
 
     def vision(self, system: str, user_text: str, image_b64: str, media_type: str = "image/png") -> str | None:
-        """Send a screenshot to a vision model and return its description. Anthropic (Claude) only.
-        Uses the active brain if it's anthropic, else falls back to ANTHROPIC_API_KEY if present."""
+        """Send a screenshot to a vision model and return its description.
+        Prefers Anthropic (Claude) when a key exists; otherwise falls back to a LOCAL
+        Ollama vision model (env OLLAMA_VISION_MODEL, default llava:7b) — free, no key."""
         import os
         provider, base_url, model, key_env = self.provider, self.base_url, self.model, self.api_key_env
         if provider != "anthropic":
@@ -318,10 +319,10 @@ class LLMClient:
             if prof and os.environ.get(prof.get("api_key_env", "")):
                 provider, base_url, model, key_env = "anthropic", prof["base_url"].rstrip("/"), prof["model"], prof["api_key_env"]
             else:
-                return None
+                return self._vision_ollama(user_text, image_b64)
         key = os.environ.get(key_env) if key_env else None
         if not key:
-            return None
+            return self._vision_ollama(user_text, image_b64)
         url = f"{base_url}/v1/messages"
         headers = {"Content-Type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": key}
         payload = {"model": model, "max_tokens": self.max_tokens, "system": system,
@@ -347,6 +348,42 @@ class LLMClient:
             return None
         except (urllib.error.URLError, TimeoutError, OSError, ValueError, KeyError) as e:
             self._last_error = f"vision: {e}"
+            return None
+
+    def _vision_ollama(self, user_text: str, image_b64: str) -> str | None:
+        """Local vision brain via Ollama /api/chat (images: [b64]). No key, no cost.
+        The persona/system prompt is intentionally NOT sent — small vision models
+        ground better on a bare task prompt. Degrades to None with _last_error set."""
+        import os
+        base = os.environ.get("OLLAMA_HOST", "").rstrip("/")
+        if not base:
+            prof = (self.full.get("profiles") or {}).get("ollama") or {}
+            base = (prof.get("base_url") or "").rstrip("/")
+        if not base and self.provider == "ollama":
+            base = self.base_url
+        if not base:
+            base = "http://127.0.0.1:11434"
+        model = os.environ.get("OLLAMA_VISION_MODEL", "llava:7b")
+        payload = {"model": model, "stream": False,
+                   "messages": [{"role": "user", "content": user_text, "images": [image_b64]}],
+                   "options": {"temperature": 0.1, "num_predict": self.max_tokens}}
+        try:
+            body = self._post(base + "/api/chat", payload, {"Content-Type": "application/json"})
+            text = (body.get("message") or {}).get("content", "").strip()
+            return text or None
+        except urllib.error.HTTPError as e:
+            try:
+                detail = e.read().decode("utf-8", "ignore")[:300]
+            except Exception:
+                detail = ""
+            self._last_error = (f"local vision ({model}) HTTP {e.code}: "
+                                f"{detail or getattr(e, 'reason', '')}")
+            if self.logger:
+                self.logger.warn(self._last_error)
+            return None
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError, KeyError) as e:
+            self._last_error = (f"local vision ({model}) unreachable at {base}: {e} — "
+                                f"start Ollama and run: ollama pull {model}")
             return None
 
     def reachable(self) -> bool:

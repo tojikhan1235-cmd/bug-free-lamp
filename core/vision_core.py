@@ -18,14 +18,28 @@ class VisionCore:
         return self.orch.tools.get("screen")
 
     def _has_eyes(self) -> bool:
-        # Vision is Claude-only and REQUIRES a real Anthropic key — the screenshot is sent to the
-        # Anthropic vision API. Being on the 'claude' brain without a key is NOT enough (that just
-        # made vision fail silently). Accept either the env key, or a keyed 'claude' profile.
+        # Eyes exist when EITHER brain can see:
+        #  1) Claude — a real ANTHROPIC_API_KEY (env key, or a keyed 'claude' profile), or
+        #  2) a LOCAL Ollama server is live (free vision via llava — no key at all).
+        # LLMClient.vision() picks Claude when keyed and falls back to Ollama otherwise.
         if os.environ.get("ANTHROPIC_API_KEY"):
             return True
         try:
             prof = (self.orch.settings.get("llm", {}).get("profiles", {}) or {}).get("claude", {}) or {}
-            return bool(os.environ.get(prof.get("api_key_env", "ANTHROPIC_API_KEY")))
+            if os.environ.get(prof.get("api_key_env", "ANTHROPIC_API_KEY")):
+                return True
+        except Exception:
+            pass
+        return self._ollama_available()
+
+    def _ollama_available(self) -> bool:
+        """True when a local Ollama server answers — the free vision brain (llava:7b).
+        Fast fail: connection-refused on a dead port returns immediately."""
+        import urllib.request
+        host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+        try:
+            with urllib.request.urlopen(host + "/api/tags", timeout=2) as r:
+                return r.status == 200
         except Exception:
             return False
 
@@ -40,8 +54,9 @@ class VisionCore:
         if not ok:
             return f"I couldn't capture the screen, sir — {err}."
         if not self._has_eyes():
-            return ("To actually see your screen I need Claude's eyes, sir — add your ANTHROPIC_API_KEY "
-                    "to .env and I'll describe whatever is on screen.")
+            return ("To actually see your screen I need eyes, sir — either start Ollama with a "
+                    "vision model (free: ollama pull llava:7b), or add your ANTHROPIC_API_KEY "
+                    "to .env, and I'll describe whatever is on screen.")
         q = question.strip() or ("Describe what is currently on this Windows screen — the active app, "
                                  "the windows open, and anything notable.")
         desc = self.orch.llm.vision(self.orch.system_prompt, q, b64)
@@ -63,7 +78,8 @@ class VisionCore:
             return {"ok": False, "verdict": "unclear", "detail": f"couldn't capture the screen ({err})"}
         if not self._has_eyes():
             return {"ok": False, "verdict": "unclear",
-                    "detail": "I have no vision key (ANTHROPIC_API_KEY) to look with"}
+                    "detail": "I have no vision brain to look with (start Ollama + llava:7b, "
+                              "or set ANTHROPIC_API_KEY)"}
         q = ("Look at this screen. Is the following true right now? \"" + expectation + "\". "
              "Answer with YES or NO on the first line, then one short sentence explaining what you see.")
         ans = (self.orch.llm.vision(self.orch.system_prompt, q, b64) or "").strip()
@@ -172,10 +188,12 @@ class VisionCore:
 
         # 2/3) Vision
         if not self._has_eyes():
-            return {"ok": False, "detail": "I have no vision key (ANTHROPIC_API_KEY) and couldn't read the UI tree"}
+            return {"ok": False, "detail": "I have no vision brain (start Ollama + llava:7b, or set "
+                                           "ANTHROPIC_API_KEY) and couldn't read the UI tree"}
         img = self._grab_image()
         if img is None:
-            return {"ok": False, "detail": "I need pillow to see the screen for grounding (pip install pillow)"}
+            return {"ok": False, "detail": "I couldn't grab the screen for grounding — needs pillow "
+                                           "(pip install pillow) and a live graphical session"}
         W, H = img.size
         coarse = self._vision_point(self._image_b64(img), target)
         if not coarse.get("found"):

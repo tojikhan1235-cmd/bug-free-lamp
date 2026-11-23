@@ -178,6 +178,22 @@ JARVIS_TOOLS: list[dict] = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
+        "name": "click_element",
+        "description": (
+            "Click an on-screen element described in words (e.g. 'the Submit button'). "
+            "Takes a screenshot, asks the vision model for the element's coordinates, "
+            "then clicks them. No coordinates needed. Verify the result afterwards."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {"type": "string", "description": "What to click, e.g. 'the Submit button'"},
+                "button": {"type": "string", "enum": ["left", "right"], "default": "left"},
+            },
+            "required": ["description"],
+        },
+    },
+    {
         "name": "send_notification",
         "description": "Send a desktop notification.",
         "input_schema": {
@@ -302,6 +318,10 @@ def _execute_tool(name: str, inp: dict) -> str:
                 return f"Screenshot: {fp}"
             except Exception as e:
                 return f"Screenshot error: {e}"
+
+        if name == "click_element":
+            from modules.gui_automation import click_element
+            return click_element(inp["description"], inp.get("button", "left"))
 
         if name == "send_notification":
             try:

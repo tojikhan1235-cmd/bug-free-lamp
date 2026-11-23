@@ -87,6 +87,25 @@ class InputControlTool(BaseTool):
         except Exception as e:
             return {"started": False, "spoken": f"I couldn't click there ({e}).", "debug": str(e)}
 
+    def click_element(self, description: str) -> dict:
+        """Click an element described in words ('the Submit button') — vision finds the
+        coordinates (locally via llava/Ollama, no key needed), then we click them.
+        Delegates to modules.gui_automation.click_element so FAILSAFE + honest
+        degradation live in one place."""
+        pg = self._pg()
+        if not pg:
+            return {"started": False, "spoken": _HINT, "debug": "no pyautogui"}
+        if not (description or "").strip():
+            return {"started": False, "spoken": "Click what, sir? Describe the element.", "debug": ""}
+        try:
+            from modules.gui_automation import click_element as _click_element
+            out = _click_element(description)
+            ok = out.startswith("Clicked")
+            return {"started": ok, "spoken": out if ok else f"I couldn't click '{description}' — {out}",
+                    "debug": "vision-grounded click"}
+        except Exception as e:
+            return {"started": False, "spoken": f"I couldn't click '{description}' ({e}).", "debug": str(e)}
+
     def right_click(self) -> dict:
         pg = self._pg()
         if not pg:

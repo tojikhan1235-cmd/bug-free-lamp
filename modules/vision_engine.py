@@ -76,6 +76,90 @@ def analyze_image(path: str, prompt: str = "Describe this image in detail.") -> 
     except Exception as e: return f"Vision API error: {e}"
 
 
+_FOUND_PROMPT = (
+    'Find this element on the screen: "{target}". Reply with ONLY JSON: '
+    '{{"found": true/false, "x_pct": <0-100>, "y_pct": <0-100>, "label": "what is there"}}. '
+    "x_pct/y_pct are the CENTRE of the element as a percentage of this image's width/height. "
+    'If the element is not visible, reply {{"found": false}}.')
+
+
+def _parse_found_json(ans: str) -> dict | None:
+    """Parse the vision model's reply into the grounding dict; tolerant of prose around JSON."""
+    import re
+    ans = (ans or "").strip()
+    if not ans:
+        return None
+    try:
+        data = json.loads(ans)
+    except Exception:
+        m = re.search(r"\{.*\}", ans, re.DOTALL)
+        if not m:
+            return None
+        try:
+            data = json.loads(m.group(0))
+        except Exception:
+            return None
+    return data if isinstance(data, dict) else None
+
+
+def _image_size(path: str):
+    """(width, height) of an image file — PIL first, pyautogui screen size as fallback."""
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            return im.size
+    except Exception:
+        pass
+    try:
+        import pyautogui
+        w, h = pyautogui.size()
+        return (int(w), int(h))
+    except Exception:
+        return None
+
+
+def locate_element(description: str, path: str | None = None) -> dict:
+    """Ask the vision brain WHERE `description` is on screen — the missing piece for
+    click-by-name. Works free/locally (llava via Ollama) or with Claude.
+
+    Returns {found, x, y, x_pct, y_pct, label, detail}; x/y are absolute pixels in the
+    screenshot. Degrades honestly: every failure path explains itself in 'detail'."""
+    desc = (description or "").strip()
+    if not desc:
+        return {"found": False, "detail": "nothing specified to find"}
+    try:
+        if not path:
+            from modules.display_control import take_screenshot
+            path = take_screenshot()
+    except Exception as e:
+        return {"found": False, "detail": f"couldn't capture the screen: {e}"}
+
+    ans = analyze_image(path, _FOUND_PROMPT.format(target=desc))
+    data = _parse_found_json(ans)
+    if data is None:
+        return {"found": False, "label": "",
+                "detail": "vision didn't return usable coordinates", "raw": str(ans)[:300]}
+    if not data.get("found"):
+        return {"found": False, "label": str(data.get("label", "")),
+                "detail": f"'{desc}' is not visible on screen"}
+    try:
+        x_pct = float(data.get("x_pct", 50)); y_pct = float(data.get("y_pct", 50))
+    except (TypeError, ValueError):
+        return {"found": False, "label": str(data.get("label", "")),
+                "detail": "vision returned malformed coordinates"}
+    x_pct = max(0.0, min(100.0, x_pct)); y_pct = max(0.0, min(100.0, y_pct))
+    size = _image_size(path)
+    if not size:
+        return {"found": False, "x_pct": x_pct, "y_pct": y_pct,
+                "label": str(data.get("label", "")),
+                "detail": "found it, but I can't read the image size to convert to pixels "
+                          "(pip install pillow)"}
+    w, h = size
+    return {"found": True, "x": int(x_pct / 100.0 * w), "y": int(y_pct / 100.0 * h),
+            "x_pct": x_pct, "y_pct": y_pct, "label": str(data.get("label", "")),
+            "detail": f"vision grounding on {w}x{h} screenshot"}
+
+
 def detect_faces(path: str) -> dict:
     """Detect faces in image using OpenCV. Returns count and bounding boxes."""
     if not _CV2: return {"error": "opencv-python not installed", "faces": 0}
