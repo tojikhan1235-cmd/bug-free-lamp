@@ -1,0 +1,33 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "ollama/llama3.1:8b",
+  "small_model": "ollama/llama3.1:8b",
+  "command": {
+    "jarvis": {
+      "description": "Give JARVIS a task end-to-end (plan, act, verify)",
+      "agent": "jarvis",
+      "template": "Task for JARVIS: $ARGUMENTS\n\nPlan the steps, execute them with the project's tools, and verify the result. Respect the permission gate: never bypass confirmation for deletion, money, external sends, or system changes."
+    },
+    "research": {
+      "description": "Deep-dive research on a topic using web + local sources",
+      "agent": "research",
+      "subtask": true,
+      "template": "Research this and return a concise brief with sources: $ARGUMENTS"
+    },
+    "desktop": {
+      "description": "Describe or control the desktop (screenshot, vision, click, type)",
+      "agent": "jarvis",
+      "template": "Desktop task: $ARGUMENTS\n\nUse vision (llava:7b via Ollama) to look at the screen, locate elements by description, and act via the input tools. pyautogui.FAILSAFE stays on."
+    },
+    "health": {
+      "description": "Check brains, models, and system health",
+      "agent": "jarvis",
+      "template": "Run the health check: python -c \"import llm_router; print(llm_router.health_report())\" and report Ollama status (ollama list), reachable brains, and any missing models for: $ARGUMENTS"
+    },
+    "test": {
+      "description": "Run the pytest suite and summarise failures vs the known-failing baseline",
+      "agent": "jarvis",
+      "template": "Run: python -m pytest tests/ -q --tb=no\n\nKnown-failing baseline (upstream, do NOT weaken gates to fix): tests/test_hardening.py (3 failures) and tests/test_core.py::test_agentic_brain_chains_actions. Report anything beyond the baseline. Focus: $ARGUMENTS"
+    }
+  }
+}
