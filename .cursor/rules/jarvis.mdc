@@ -20,8 +20,10 @@ Canonical source: **AGENTS.md** / **CONVENTIONS.md**. Hard constraints, not sugg
   degrade honestly — never crash, never fake success.
 
 ## Brain Setup UI
-- HUD (`ui/hud.html`) ⚙ SETUP → `GET /api/brains` + `POST /api/brain {"name","model"}`
-  (`channels/web_server.py`); choice persists to `config/settings.json` (non-secret only).
+- Both dashboards (HUD `ui/hud.html` at `/`, classic `ui/dashboard.html` at `/classic`) have a
+  ⚙ SETUP panel → `GET /api/brains` + `POST /api/brain {"name","model"}` + `POST /api/brain/test
+  {"name"}` (reachability test WITHOUT switching; `LLMClient.test_profile`) in `channels/web_server.py`;
+  choice persists to `config/settings.json` (non-secret only).
 - The API NEVER accepts or returns raw keys — only a `key_present` bool + env-var NAME. Keys live
   solely in `.env` (gitignored). Keep it that way.
 

@@ -11,6 +11,7 @@ Endpoints:
   GET  /api/brains      -> brain list for the Setup panel (key PRESENCE only, never values)
   POST /api/command     -> {"text": "..."} -> {"reply": "...", "status": {...}}
   POST /api/brain       -> {"name": "ollama"|"claude"|...|"auto", "model": "..."} -> switch brain
+  POST /api/brain/test  -> {"name": "..."} -> reachability test WITHOUT switching
 """
 from __future__ import annotations
 import json, os, threading, webbrowser
@@ -162,6 +163,28 @@ class _Handler(BaseHTTPRequestHandler):
             "ok": True, "reply": reply,
             "brains": _brains_payload(llm), "status": self._status_dict()}))
 
+    def _handle_brain_test(self):
+        """POST /api/brain/test {"name": "..."} — test a brain WITHOUT switching to it.
+        Ollama: server up + model pulled? Cloud: key present, then a 1-token ping.
+        Never accepts or returns key values (LLMClient.test_profile checks presence only)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length).decode("utf-8") if length else "{}"
+            data = json.loads(raw)
+        except (ValueError, json.JSONDecodeError):
+            self._send(400, json.dumps({"error": "bad request"}))
+            return
+        name = (data.get("name") or "").strip().lower()
+        if not name:
+            self._send(400, json.dumps({"ok": False, "error": "name required"}))
+            return
+        try:
+            result = self.orch.llm.test_profile(name)
+        except Exception as e:
+            result = {"ok": False, "reachable": False, "latency_ms": 0,
+                      "detail": f"test failed: {type(e).__name__}: {e}"}
+        self._send(200, json.dumps(result))
+
     def do_GET(self):
         if self.path in ("/", "/index.html", "/dashboard"):
             try:
@@ -242,6 +265,9 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/api/brain":
             self._handle_brain_switch()
+            return
+        if self.path == "/api/brain/test":
+            self._handle_brain_test()
             return
         if self.path != "/api/command":
             self._send(404, json.dumps({"error": "not found"}))
