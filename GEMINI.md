@@ -16,9 +16,11 @@ Canonical rules: **AGENTS.md** / **CONVENTIONS.md**. Hard constraints, not sugge
   degrade honestly (never crash, never fake success).
 
 ## Brain Setup UI
-- HUD (`ui/hud.html`) ⚙ SETUP → `GET /api/brains` + `POST /api/brain {"name","model"}`
-  (`channels/web_server.py`); persists to `config/settings.json` (non-secret only). The API NEVER
-  accepts or returns raw keys — only `key_present` + env-var NAME. Keys live solely in `.env`.
+- Both dashboards (HUD `ui/hud.html` at `/`, classic `ui/dashboard.html` at `/classic`) have a
+  ⚙ SETUP panel → `GET /api/brains` + `POST /api/brain {"name","model"}` + `POST /api/brain/test
+  {"name"}` (test WITHOUT switching; `LLMClient.test_profile`) in `channels/web_server.py`;
+  persists to `config/settings.json` (non-secret only). The API NEVER accepts or returns raw keys —
+  only `key_present` + env-var NAME. Keys live solely in `.env`.
 
 ## Safety gates — DO NOT WEAKEN
 - `security.py`, `core/permission_gate.py`, `core/permission_manager.py`, `core/safety_guard.py`.

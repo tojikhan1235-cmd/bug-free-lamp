@@ -107,6 +107,35 @@
   .vtoggle{cursor:pointer;color:var(--cyan)}
   #voiceSel{background:rgba(2,8,16,.8);color:var(--cyan);border:1px solid var(--line);
             border-radius:6px;padding:3px 6px;font-size:10px;max-width:200px;outline:none}
+  /* setup modal — choose brain (local or your API) */
+  .modal{position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;background:rgba(1,4,10,.72)}
+  .modal.show{display:flex}
+  .modal .sheet{width:min(560px,93vw);max-height:86vh;overflow:auto;padding:20px;border:1px solid var(--line);
+                border-radius:12px;background:#061322;box-shadow:0 0 44px rgba(53,227,255,.28)}
+  .modal h3{font-size:12px;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;margin-bottom:8px}
+  .modal .sub{color:var(--muted);font-size:12.5px;line-height:1.55;margin-bottom:14px}
+  .modal .sub code,.modal .note code{color:var(--cyan)}
+  .brain{display:flex;flex-wrap:wrap;align-items:center;gap:9px;padding:9px 11px;margin-bottom:7px;cursor:pointer;
+         border:1px solid var(--line);border-radius:9px;transition:.15s}
+  .brain:hover{background:rgba(53,227,255,.07)}
+  .brain input[type=radio]{accent-color:var(--cyan)}
+  .brain .bname{font-size:12.5px;color:#eafaff;min-width:110px;letter-spacing:1px;text-transform:uppercase}
+  .brain .bname em{display:block;font-style:normal;font-size:10.5px;color:var(--muted);text-transform:none;margin-top:1px}
+  .brain .bmodel{flex:1;min-width:100px;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:7px;
+                 color:var(--cyan);font-size:12.5px;padding:5px 8px;outline:none}
+  .bstat{font-size:9.5px;letter-spacing:1px;padding:3px 8px;border-radius:20px;white-space:nowrap;text-transform:uppercase}
+  .bstat.ok{color:#33ff9e;border:1px solid rgba(51,255,158,.4)}
+  .bstat.warn{color:var(--gold);border:1px solid rgba(255,194,75,.4)}
+  .bstat.neutral{color:var(--muted);border:1px solid var(--line)}
+  .btest{font-size:9.5px;letter-spacing:1px;padding:3px 9px;border-radius:7px;cursor:pointer;
+         background:rgba(53,227,255,.12);border:1px solid var(--line);color:var(--cyan)}
+  .btest:disabled{opacity:.5;cursor:wait}
+  .bresult{flex-basis:100%;font-size:11px;color:var(--muted)}
+  .bresult:empty{display:none}
+  .bresult.good{color:#33ff9e}.bresult.bad{color:var(--gold)}
+  .modal .row{display:flex;gap:9px;justify-content:flex-end;margin-top:14px}
+  .modal .row button.act{padding:9px 18px}
+  .modal .note{color:var(--muted);font-size:11px;line-height:1.5;margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)}
   ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:rgba(53,227,255,.25);border-radius:8px}
 </style>
 </head>
@@ -144,6 +173,7 @@
         <button class="act mic" id="mic" title="Speak">&#127908;</button>
         <input id="inp" placeholder="Speak or type a command, Master..." autocomplete="off">
         <button class="act" id="send">SEND</button>
+        <button class="act" id="setup" title="Brain setup - local (free) or connect your API">&#9881; SETUP</button>
       </div>
     </div>
   </main>
@@ -168,6 +198,19 @@
       <span class="vtoggle" id="voiceToggle">&#128266; VOICE: OFF</span>
     </span>
   </footer>
+</div>
+
+<div class="modal" id="setupModal">
+  <div class="sheet">
+    <h3>Brain Setup</h3>
+    <div class="sub">Choose how JARVIS thinks. <b style="color:#33ff9e">Local (Ollama)</b> is free &amp; private — no key. <b style="color:var(--cyan)">Cloud</b> brains use your own API key from <code>.env</code>. <b>TEST</b> checks a brain without switching to it.</div>
+    <div id="brainList"></div>
+    <div class="row">
+      <button class="act" id="setupClose">CLOSE</button>
+      <button class="act" id="setupApply">APPLY</button>
+    </div>
+    <div class="note">&#128274; This panel never sees, sends, or stores your keys — it only shows whether each key is present. To connect a cloud brain, add its variable (e.g. <code>ANTHROPIC_API_KEY=...</code>) to your <code>.env</code> file and reopen Setup.</div>
+  </div>
 </div>
 
 <script>
@@ -392,6 +435,69 @@ function onClap(){
   if(voiceOn) speak('Yes, sir?');
 }
 
+
+// ---------- Brain Setup (local or your own API) ----------
+const setupModal=document.getElementById('setupModal');
+function escS(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+async function loadBrains(){
+  const list=document.getElementById('brainList'); list.innerHTML='<div class="bstat neutral">loading…</div>';
+  try{
+    const r=await fetch('/api/brains'); const j=await r.json();
+    let html='<label class="brain"><input type="radio" name="brain" value="auto"'+(j.smart_routing?' checked':'')+'>'
+      +'<span class="bname">Smart routing<em>auto-pick the best brain per request</em></span>'
+      +'<span class="bstat neutral">auto</span></label>';
+    (j.brains||[]).forEach(b=>{
+      const active=(b.name===j.active && !j.smart_routing);
+      let stat;
+      if(b.local) stat='<span class="bstat ok">local &middot; free</span>';
+      else if(b.key_present) stat='<span class="bstat ok">key ready</span>';
+      else stat='<span class="bstat warn">add '+escS(b.key_env)+' to .env</span>';
+      const kind=b.local?'local &middot; private':escS(b.provider);
+      html+='<label class="brain"><input type="radio" name="brain" value="'+escS(b.name)+'"'+(active?' checked':'')+'>'
+        +'<span class="bname">'+escS(b.name)+'<em>'+kind+'</em></span>'
+        +'<input class="bmodel" data-brain="'+escS(b.name)+'" value="'+escS(b.model)+'" placeholder="model" spellcheck="false">'
+        +stat
+        +'<button type="button" class="btest" data-brain="'+escS(b.name)+'" title="Test this brain without switching">TEST</button>'
+        +'<span class="bresult" data-for="'+escS(b.name)+'"></span></label>';
+    });
+    list.innerHTML=html;
+  }catch(e){ list.innerHTML='<div class="bstat warn">server offline</div>'; }
+}
+document.getElementById('setup').onclick=()=>{ setupModal.classList.add('show'); loadBrains(); };
+document.getElementById('setupClose').onclick=()=>{ setupModal.classList.remove('show'); };
+setupModal.addEventListener('click',e=>{ if(e.target===setupModal) setupModal.classList.remove('show'); });
+addEventListener('keydown',e=>{ if(e.key==='Escape') setupModal.classList.remove('show'); });
+document.getElementById('setupApply').onclick=async()=>{
+  const sel=document.querySelector('input[name="brain"]:checked'); if(!sel) return;
+  const name=sel.value; let model='';
+  if(name!=='auto'){ const mi=document.querySelector('.bmodel[data-brain="'+name+'"]'); if(mi) model=mi.value.trim(); }
+  const btn=document.getElementById('setupApply'); btn.disabled=true; btn.textContent='APPLYING…';
+  try{
+    const r=await fetch('/api/brain',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,model})});
+    const j=await r.json();
+    if(j.status) renderStatus(j.status);
+    addMsg('jarvis', j.reply || (j.ok?'Brain updated.':('Could not switch: '+(j.error||'unknown'))));
+    if(voiceOn && j.reply) speak(j.reply);
+    if(j.ok){ loadBrains(); pollStatus(); }
+  }catch(e){ addMsg('jarvis','[setup error] Could not reach the server.'); }
+  btn.disabled=false; btn.textContent='APPLY';
+};
+// per-brain TEST: reachability check WITHOUT switching (delegated — rows are re-rendered)
+document.getElementById('brainList').addEventListener('click',async e=>{
+  const btn=(e.target.closest&&e.target.closest('.btest'))||null; if(!btn) return;
+  e.preventDefault();  // clicking TEST inside the <label> must not select its radio
+  const name=btn.dataset.brain;
+  const out=document.querySelector('.bresult[data-for="'+name+'"]');
+  btn.disabled=true; btn.textContent='…';
+  if(out){ out.textContent='testing '+name+'…'; out.className='bresult'; }
+  try{
+    const r=await fetch('/api/brain/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    const j=await r.json();
+    if(out){ out.textContent=(j.ok?'✓ ':'⚠ ')+(j.detail||'')+(typeof j.latency_ms==='number'?' · '+j.latency_ms+'ms':'');
+      out.className='bresult '+(j.ok?'good':'bad'); }
+  }catch(err){ if(out){ out.textContent='⚠ test request failed — is the server running?'; out.className='bresult bad'; } }
+  btn.disabled=false; btn.textContent='TEST';
+});
 
 // boot
 async function boot(){

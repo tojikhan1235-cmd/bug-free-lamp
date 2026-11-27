@@ -96,8 +96,9 @@ If instead you get `[JARVIS STARTUP FAILURE] No brain found.`, either Ollama isn
 
 ## 6. Choose your brain: Local (free) or your own API — the ⚙ SETUP panel
 
-In the dashboard, click **⚙ SETUP** (bottom bar). The panel lists every brain and lets you switch
-with one click — no typing `use <brain>` needed:
+In the dashboard, click **⚙ SETUP** (bottom bar). The same panel is on both interfaces — the HUD
+at `http://localhost:8765/` and the classic dashboard at `/classic`. It lists every brain and lets
+you switch with one click — no typing `use <brain>` needed:
 
 - **Smart routing** — JARVIS auto-picks the best brain per request (default).
 - **ollama** — *local · free*, no key. Badge shows **local · free**. Pick a model (e.g. `llama3.1:8b`,
@@ -107,6 +108,13 @@ with one click — no typing `use <brain>` needed:
 
 Select a brain → (optionally edit its model) → **APPLY**. The switch is instant and is saved to
 `config/settings.json`, so it survives restarts.
+
+Each brain also has a **TEST** button that checks it *without* switching:
+- **ollama** → is the server up, and is the model actually pulled? (tells you the exact
+  `ollama pull …` command if not)
+- **cloud** → is the key present, and does the provider answer a minimal 1-token ping?
+  Results show ✓ reachable (with latency) or ⚠ the honest reason (server down / key missing /
+  model not pulled / HTTP error).
 
 🔒 **The panel never asks for, sends, or stores your keys.** It only shows whether each key is
 *present*. To connect a cloud brain, put its key in your `.env` file (step 4), e.g.:

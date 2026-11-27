@@ -60,19 +60,25 @@ changing anything. These rules are hard constraints, not suggestions.
 
 ## Brain Setup UI (choose local or your own API)
 
-- The HUD (`ui/hud.html`, served at `/`) has a ⚙ **SETUP** button that opens a Brain Setup panel:
-  pick **Local (Ollama, free, no key)** or a **cloud brain** (Claude / Perplexity / NVIDIA / Gemini),
-  edit any brain's model, and Apply — the choice takes effect live and persists to
-  `config/settings.json` (non-secret fields only: `llm.active` + per-profile `model`).
+- BOTH dashboards have a ⚙ **SETUP** button that opens the same Brain Setup panel: the HUD
+  (`ui/hud.html`, served at `/`) and the classic dashboard (`ui/dashboard.html`, at `/classic`).
+  Pick **Local (Ollama, free, no key)** or a **cloud brain** (Claude / Perplexity / NVIDIA /
+  Gemini), edit any brain's model, **TEST** it, and Apply — the choice takes effect live and
+  persists to `config/settings.json` (non-secret fields only: `llm.active` + per-profile `model`).
 - Backing endpoints in `channels/web_server.py`:
   - `GET /api/brains` → `{active, smart_routing, brains:[{name, provider, model, key_env,
     key_present, local, usable}]}`. **Returns only whether a key is PRESENT (bool) and the env-var
     NAME — never the key value.**
   - `POST /api/brain` `{"name":"ollama"|"claude"|...|"auto", "model":"optional"}` → switches the
     live brain (`llm.switch`/`llm.auto`) and persists the choice. `auto` = smart per-request routing.
+  - `POST /api/brain/test` `{"name":"..."}` → tests a brain **without switching** to it
+    (`LLMClient.test_profile`): Ollama = server up + model pulled (`/api/tags`); cloud = key
+    present + a minimal 1-token ping with a short timeout. Returns
+    `{ok, reachable, latency_ms, detail[, model_pulled]}`.
 - **SAFETY: the API never accepts or returns raw keys.** Keys live solely in `.env` (gitignored).
   Keep it that way — the panel is a switcher, not a key vault. Cloud brains show
-  "add <ENV_VAR> to .env" when their key is missing.
+  "add <ENV_VAR> to .env" when their key is missing. `test_profile` sends a key only to its OWN
+  provider (normal operation) and never echoes it in results or logs.
 
 ## Coding agents (works with any tool)
 

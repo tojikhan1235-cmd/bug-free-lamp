@@ -307,6 +307,70 @@ class LLMClient:
         return [{"name": n, "usable": self._profile_usable(n), "cooldown": self._is_dead(n),
                  "provider": profiles.get(n, {}).get("provider", "")} for n in self.profiles()]
 
+    def test_profile(self, name: str, timeout: int = 10) -> dict:
+        """Test a brain WITHOUT switching to it — powers the Setup panel's TEST button.
+
+        Returns {ok, reachable, latency_ms, detail, ...}:
+          ollama -> GET /api/tags: is the server up, and is the model actually pulled?
+          cloud  -> key present in env? then a minimal 1-token completion against the
+                    profile's own endpoint (validates key + model + URL together).
+        Never returns key values — env is read only to check PRESENCE; the key itself
+        goes only to its own provider in the request header, as in normal operation."""
+        prof = (self.full.get("profiles") or {}).get(name)
+        if not prof:
+            return {"ok": False, "reachable": False, "latency_ms": 0,
+                    "detail": f"no brain called '{name}'"}
+        provider = prof.get("provider", "ollama") or "ollama"
+        base = (prof.get("base_url") or "").rstrip("/")
+        model = prof.get("model", "") or ""
+        env = prof.get("api_key_env", "") or ""
+        t0 = time.time()
+
+        def ms():
+            return int((time.time() - t0) * 1000)
+
+        try:
+            if provider == "ollama":
+                body = self._get_json(base + "/api/tags", timeout=timeout)
+                names = [m.get("name", "") for m in (body.get("models") or [])]
+                want = model.split(":")[0]
+                pulled = any(n == model or n.split(":")[0] == want for n in names)
+                if pulled:
+                    return {"ok": True, "reachable": True, "latency_ms": ms(),
+                            "model_pulled": True, "detail": f"ollama up · {model} ready"}
+                return {"ok": False, "reachable": True, "latency_ms": ms(), "model_pulled": False,
+                        "detail": f"ollama is up but '{model}' isn't pulled — run: ollama pull {model}",
+                        "models": names[:25]}
+            # cloud brains: key must be present (its value never leaves the environment)
+            if env and not os.environ.get(env):
+                return {"ok": False, "reachable": False, "latency_ms": 0,
+                        "detail": f"key missing — add {env} to your .env file"}
+            if provider == "anthropic":
+                url = base + "/v1/messages"
+                headers = {"Content-Type": "application/json",
+                           "anthropic-version": "2023-06-01",
+                           "x-api-key": os.environ.get(env, "")}
+            else:  # openai-compatible (perplexity / nvidia / gemini / ...)
+                url = base + "/chat/completions"
+                headers = {"Content-Type": "application/json",
+                           "Authorization": f"Bearer {os.environ.get(env, '')}"}
+            payload = {"model": model, "max_tokens": 1, "stream": False,
+                       "messages": [{"role": "user", "content": "ping"}]}
+            self._post(url, payload, headers, timeout=timeout)
+            return {"ok": True, "reachable": True, "latency_ms": ms(),
+                    "detail": f"{name} ({model}) responded"}
+        except urllib.error.HTTPError as e:
+            # Server answered with an error -> reachable, but key/model/URL is wrong.
+            try:
+                body_detail = e.read().decode("utf-8", "ignore")[:200]
+            except Exception:
+                body_detail = ""
+            return {"ok": False, "reachable": True, "latency_ms": ms(),
+                    "detail": f"HTTP {e.code}: {body_detail or getattr(e, 'reason', '')}".strip()}
+        except Exception as e:
+            return {"ok": False, "reachable": False, "latency_ms": ms(),
+                    "detail": f"can't reach {name}: {type(e).__name__}: {e}"}
+
     def vision(self, system: str, user_text: str, image_b64: str, media_type: str = "image/png") -> str | None:
         """Send a screenshot to a vision model and return its description.
         Prefers Anthropic (Claude) when a key exists; otherwise falls back to a LOCAL
@@ -392,10 +456,15 @@ class LLMClient:
         return bool(self.chat("You are a healthcheck.", "Reply with the single word OK."))
 
     # ---- providers ----
-    def _post(self, url: str, payload: dict, headers: dict) -> dict:
+    def _post(self, url: str, payload: dict, headers: dict, timeout: int | None = None) -> dict:
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def _get_json(self, url: str, timeout: int | None = None) -> dict:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
     def _ollama(self, system, convo) -> str | None:

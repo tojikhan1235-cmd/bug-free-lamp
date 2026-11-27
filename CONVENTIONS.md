@@ -21,11 +21,15 @@ coding agent's config mirrors. These are hard constraints, not suggestions.
   never crash, never fake success.
 
 ## Brain Setup UI
-- The HUD (`ui/hud.html`) has a ⚙ **SETUP** panel backed by `channels/web_server.py`:
-  `GET /api/brains` (lists brains) and `POST /api/brain` `{"name","model"}` (switch local/cloud,
-  edit model). Choice persists to `config/settings.json` (non-secret only).
+- BOTH dashboards — HUD (`ui/hud.html`, at `/`) and classic (`ui/dashboard.html`, at `/classic`) —
+  have a ⚙ **SETUP** panel backed by `channels/web_server.py`: `GET /api/brains` (lists brains),
+  `POST /api/brain` `{"name","model"}` (switch local/cloud, edit model; persists to
+  `config/settings.json`, non-secret only), and `POST /api/brain/test` `{"name"}` (reachability
+  test WITHOUT switching: Ollama = server up + model pulled; cloud = key present + 1-token ping,
+  short timeout — `LLMClient.test_profile`).
 - **The API never accepts or returns raw keys** — only a `key_present` boolean and the env-var
-  NAME. Keys live solely in `.env` (gitignored). Keep it that way.
+  NAME. Keys live solely in `.env` (gitignored). `test_profile` sends a key only to its own
+  provider and never echoes it. Keep it that way.
 
 ## Safety gates — DO NOT WEAKEN
 - `security.py` (SecurityClass A/B/C/X + SHA256-chained audit log), `core/permission_gate.py`

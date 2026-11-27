@@ -20,9 +20,11 @@ Canonical rules: **AGENTS.md** / **CONVENTIONS.md**. These are hard constraints.
   message — never crash, never pretend success.
 
 ## Brain Setup UI
-- HUD (`ui/hud.html`) has a ⚙ SETUP panel backed by `channels/web_server.py`: `GET /api/brains`
-  and `POST /api/brain {"name","model"}` to switch local/cloud brain and edit the model. The choice
-  persists to `config/settings.json` (non-secret fields only).
+- Both dashboards — HUD (`ui/hud.html`, at `/`) and classic (`ui/dashboard.html`, at `/classic`) —
+  have a ⚙ SETUP panel backed by `channels/web_server.py`: `GET /api/brains`, `POST /api/brain
+  {"name","model"}` (switch local/cloud brain, edit model; persists to `config/settings.json`,
+  non-secret fields only), and `POST /api/brain/test {"name"}` (reachability test WITHOUT
+  switching — Ollama: server up + model pulled; cloud: key present + minimal 1-token ping).
 - The endpoints NEVER accept or return raw keys — only a `key_present` boolean and the env-var NAME.
   Keys live solely in `.env` (gitignored). Do not change that.
 

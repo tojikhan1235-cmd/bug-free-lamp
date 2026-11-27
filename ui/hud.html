@@ -168,7 +168,7 @@
          margin-bottom:8px;text-shadow:0 0 8px rgba(0,240,255,.5)}
   .modal .sub{color:var(--muted);font-size:13.5px;line-height:1.55;margin-bottom:16px}
   .modal .sub code{color:var(--cyan-soft);background:rgba(0,240,255,.08);padding:1px 5px;border-radius:5px}
-  .brain{display:flex;align-items:center;gap:11px;padding:10px 12px;margin-bottom:8px;cursor:pointer;
+  .brain{display:flex;flex-wrap:wrap;align-items:center;gap:11px;padding:10px 12px;margin-bottom:8px;cursor:pointer;
          border:1px solid var(--line);border-radius:10px;transition:.15s}
   .brain:hover{background:rgba(0,240,255,.07);transform:translateX(2px)}
   .brain input[type=radio]{accent-color:var(--cyan);width:16px;height:16px;flex:none;cursor:pointer}
@@ -183,6 +183,14 @@
   .bstat.ok{color:var(--green);border:1px solid rgba(77,255,156,.4);background:rgba(77,255,156,.1)}
   .bstat.warn{color:var(--gold);border:1px solid rgba(245,194,86,.42);background:rgba(245,194,86,.1)}
   .bstat.neutral{color:var(--muted);border:1px solid var(--line)}
+  .btest{font-family:"Orbitron";font-size:9px;letter-spacing:1px;padding:4px 9px;border-radius:8px;cursor:pointer;
+         background:rgba(0,240,255,.1);border:1px solid var(--line);color:var(--cyan);flex:none;transition:.15s}
+  .btest:hover{background:rgba(0,240,255,.26);box-shadow:0 0 10px rgba(0,240,255,.5)}
+  .btest:disabled{opacity:.5;cursor:wait}
+  .bresult{flex-basis:100%;font-size:11.5px;line-height:1.4;color:var(--muted);letter-spacing:.3px}
+  .bresult:empty{display:none}
+  .bresult.good{color:var(--green)}
+  .bresult.bad{color:var(--gold)}
   .modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
   .modal .row button.act{padding:10px 20px}
   .modal .note{color:var(--muted);font-size:11.5px;line-height:1.55;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
@@ -259,7 +267,7 @@
   <div class="sheet">
     <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
     <h3>Brain Setup</h3>
-    <div class="sub">Choose how JARVIS thinks. <b style="color:var(--green)">Local (Ollama)</b> is free &amp; private — no key needed. <b style="color:var(--cyan)">Cloud</b> brains use your own API key from <code>.env</code>. You can also edit any brain's model.</div>
+    <div class="sub">Choose how JARVIS thinks. <b style="color:var(--green)">Local (Ollama)</b> is free &amp; private — no key needed. <b style="color:var(--cyan)">Cloud</b> brains use your own API key from <code>.env</code>. Edit any brain's model; <b>TEST</b> checks a brain without switching to it.</div>
     <div id="brainList"></div>
     <div class="row">
       <button class="act" id="setupClose">CLOSE</button>
@@ -476,7 +484,9 @@ async function loadBrains(){
       html+='<label class="brain"><input type="radio" name="brain" value="'+esc(b.name)+'"'+(active?' checked':'')+'>'
         +'<span class="bname">'+esc(b.name)+'<em>'+kind+'</em></span>'
         +'<input class="bmodel" data-brain="'+esc(b.name)+'" value="'+esc(b.model)+'" placeholder="model" spellcheck="false">'
-        +stat+'</label>';
+        +stat
+        +'<button type="button" class="btest" data-brain="'+esc(b.name)+'" title="Test this brain without switching to it">TEST</button>'
+        +'<span class="bresult" data-for="'+esc(b.name)+'"></span></label>';
     });
     list.innerHTML=html;
   }catch(e){ list.innerHTML='<div class="bstat warn">server offline</div>'; }
@@ -501,6 +511,23 @@ if($('setupApply')) $('setupApply').onclick=async()=>{
   }catch(e){ addMsg('jarvis','[setup error] Could not reach the server, sir.'); }
   btn.disabled=false; btn.textContent='APPLY';
 };
+// per-brain TEST: reachability check WITHOUT switching (delegated — rows are re-rendered)
+$('brainList').addEventListener('click',async e=>{
+  const btn=(e.target.closest&&e.target.closest('.btest'))||null; if(!btn) return;
+  e.preventDefault();  // clicking TEST inside the <label> must not select its radio
+  const name=btn.dataset.brain;
+  const out=document.querySelector('.bresult[data-for="'+name+'"]');
+  btn.disabled=true; btn.textContent='…';
+  if(out){ out.textContent='testing '+name+'…'; out.className='bresult'; }
+  try{
+    const r=await fetch('/api/brain/test',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name})});
+    const j=await r.json();
+    if(out){ out.textContent=(j.ok?'✓ ':'⚠ ')+(j.detail||'')+(typeof j.latency_ms==='number'?' · '+j.latency_ms+'ms':'');
+      out.className='bresult '+(j.ok?'good':'bad'); }
+  }catch(err){ if(out){ out.textContent='⚠ test request failed — is the server running?'; out.className='bresult bad'; } }
+  btn.disabled=false; btn.textContent='TEST';
+});
 
 // ---------- boot ----------
 const BOOTLINES=['Initialising core systems...','Loading reasoning engine...','Calibrating sub-agents...',
